@@ -254,10 +254,8 @@ func (event *rowsEvent) read(pack *pack) {
 		columnCount uint64
 		isNull      bool
 	)
-
 	pack.readIntLengthOrNil(&columnCount, &isNull)
 	bitMapLength := int((columnCount + 7) / 8)
-
 	var columnPreset, columnPresentBitmap1, columnPresentBitmap2, nullBitmap []byte
 
 	columnPresentBitmap1 = pack.Next(bitMapLength)
@@ -289,6 +287,10 @@ func (event *rowsEvent) read(pack *pack) {
 			value := &RowsEventValue{
 				columnId: i,
 				_type:    column.Type,
+			}
+
+			if len(nullBitmap) <= 0 && int(i/8) > bitMapLength-1 {
+				continue
 			}
 
 			if isTrue(i, nullBitmap) {
@@ -440,6 +442,10 @@ func (event *UserVarEvent) GetType() byte {
 	return event._type
 }
 
+func (event *UserVarEvent) GetNextPosition() uint32 {
+	return event.eventLogHeader.NextPosition
+}
+
 func (event *UserVarEvent) IsNil() bool {
 	return event.isNil
 }
@@ -531,6 +537,10 @@ func (event *IntVarEvent) GetType() byte {
 	return event._type
 }
 
+func (event *IntVarEvent) GetNextPosition() uint32 {
+	return event.eventLogHeader.NextPosition
+}
+
 func (event *IntVarEvent) read(pack *pack) {
 	event._type, _ = pack.ReadByte()
 	pack.readUint64(&event.value)
@@ -538,6 +548,10 @@ func (event *IntVarEvent) read(pack *pack) {
 
 func (event *XidEvent) read(pack *pack) {
 	pack.readUint64(&event.TransactionId)
+}
+
+func (event *XidEvent) GetNextPosition() uint32 {
+	return event.eventLogHeader.NextPosition
 }
 
 func (event *QueryEvent) GetQuery() string {
@@ -554,6 +568,18 @@ func (event *QueryEvent) GetErrorCode() uint16 {
 
 func (event *QueryEvent) GetSchema() string {
 	return event.schema
+}
+
+func (event *QueryEvent) GetTimeStamp() uint32 {
+	return event.eventLogHeader.Timestamp
+}
+
+func (event *QueryEvent) GetNextPosition() uint32 {
+	return event.eventLogHeader.NextPosition
+}
+
+func (event *QueryEvent) GetServerId() uint32 {
+	return event.eventLogHeader.ServerId
 }
 
 func (event *QueryEvent) read(pack *pack) {
@@ -660,7 +686,7 @@ func (ev *eventLog) Start() error {
 		case *QueryEvent:
 			ev.eventChan <- e
 		case *XidEvent:
-			continue
+			ev.eventChan <- e
 		case *IntVarEvent:
 			ev.eventChan <- e
 		case *BeginLoadQueryEvent:
