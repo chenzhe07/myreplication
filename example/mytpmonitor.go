@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"github.com/2tvenom/myreplication"
 	_ "github.com/czgolib/log"
-	_ "github.com/davecgh/go-spew/spew"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/msbranco/goconfig"
 	"os"
 	"regexp"
@@ -29,6 +29,7 @@ var (
 	port     = int64(3306)
 	username = "monitor"
 	password = "monitor"
+	binlog   = ""
 	pos      = int64(4)
 )
 
@@ -54,6 +55,7 @@ func main() {
 	P := flag.Int64("port", 3306, "mysql server port.")
 	u := flag.String("user", "monitor", "mysql server user.")
 	p := flag.String("pass", "monitor", "mysql server password for user.")
+	f := flag.String("binlog", "", "mysql server binlog file name")
 	n := flag.Int64("pos", 4, "mysql binlog position start dump from the pos.")
 	flag.Parse()
 
@@ -62,6 +64,7 @@ func main() {
 		port = *P
 		username = *u
 		password = *p
+		binlog = *f
 		pos = *n
 	}
 	c, err := goconfig.ReadConfigFile(*conf)
@@ -69,6 +72,7 @@ func main() {
 	port, err = c.GetInt64("monitor", "port")
 	username, err = c.GetString("monitor", "username")
 	password, err = c.GetString("monitor", "password")
+	binlog, err = c.GetString("monitor", "binlog")
 	pos, err = c.GetInt64("monitor", "pos")
 	if err != nil {
 		panic("readconfigfile err: " + err.Error())
@@ -89,11 +93,19 @@ func main() {
 		panic("Master status fail: " + err.Error())
 	}
 
-	if uint32(pos) == pos_end {
-		os.Exit(1)
+	if len(binlog) == 0 {
+		binlog = filename
 	}
 
-	el, err := newConnection.StartBinlogDump(uint32(pos), filename, serverId)
+	c.AddOption("monitor", "pos", strconv.FormatInt(int64(pos_end), 10))
+	c.AddOption("monitor", "binlog", filename)
+	c.WriteConfigFile(*conf, 0644, "monitor for mytpmonitor tool")
+
+	if uint32(pos) == pos_end && binlog == filename {
+		os.Exit(0)
+	}
+
+	el, err := newConnection.StartBinlogDump(uint32(pos), binlog, serverId)
 
 	if err != nil {
 		panic("Cant start bin log: " + err.Error())
@@ -105,12 +117,11 @@ func main() {
 		for {
 
 			event := <-events
-			//spew.Dump(event)
-			//switch e := event.(type) {
+			spew.Dump(event)
 			switch e := event.(type) {
 			case *myreplication.QueryEvent:
 				LogPos = e.GetNextPosition()
-				matched, matcherr := regexp.MatchString("(?i:^grant|^revoke|^create|^drop|^alter|^truncate|^rename)", e.GetQuery())
+				matched, matcherr := regexp.MatchString("(?i:^grant|^set|^revoke|^create|^drop|^alter|^truncate|^rename)", e.GetQuery())
 				if matched && matcherr == nil {
 					mysqlinfo := MySQLInfo{}
 					mysqlinfo.Host = host
@@ -122,24 +133,22 @@ func main() {
 					mysqlinfo.Nextposition = e.GetNextPosition()
 					mysqlinfo.query = e.GetQuery()
 					logOut(mysqlinfo)
+					if mysqlinfo.Nextbinlogname != filename {
+						// as the binlog rotate, begin from 4
+						LogPos = 4
+					}
 				}
 
 			case *myreplication.IntVarEvent:
 				LogPos = e.GetNextPosition()
 			case *myreplication.XidEvent:
-				// get Xid event positin
 				LogPos = e.GetNextPosition()
 			case *myreplication.UserVarEvent:
 				LogPos = e.GetNextPosition()
 			default:
-				//if LogPos >= pos_end {
-				//	os.Exit(0)
-				//}
 			}
 
 			if LogPos >= pos_end {
-				c.AddOption("monitor", "pos", strconv.FormatInt(int64(LogPos), 10))
-				c.WriteConfigFile(*conf, 0644, "monitor for mytpmonitor tool")
 				os.Exit(0)
 			}
 		}
