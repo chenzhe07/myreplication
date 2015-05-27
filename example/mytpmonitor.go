@@ -4,9 +4,9 @@ import (
 	"flag"
 	"fmt"
 	"github.com/2tvenom/myreplication"
+	"github.com/chenzhe07/goconfig"
 	_ "github.com/czgolib/log"
-	"github.com/davecgh/go-spew/spew"
-	"github.com/msbranco/goconfig"
+	_ "github.com/davecgh/go-spew/spew"
 	"os"
 	"regexp"
 	"strconv"
@@ -25,6 +25,7 @@ type MySQLInfo struct {
 }
 
 var (
+	section  = "monitor"
 	host     = "localhost"
 	port     = int64(3306)
 	username = "monitor"
@@ -51,6 +52,7 @@ func logOut(info MySQLInfo) bool {
 
 func main() {
 	conf := flag.String("conf", "", "configure file.")
+	s := flag.String("section", "monitor", "configure section.")
 	h := flag.String("host", "localhost", "mysql server address.")
 	P := flag.Int64("port", 3306, "mysql server port.")
 	u := flag.String("user", "monitor", "mysql server user.")
@@ -67,13 +69,15 @@ func main() {
 		binlog = *f
 		pos = *n
 	}
+
+	section = *s
 	c, err := goconfig.ReadConfigFile(*conf)
-	host, err = c.GetString("monitor", "host")
-	port, err = c.GetInt64("monitor", "port")
-	username, err = c.GetString("monitor", "username")
-	password, err = c.GetString("monitor", "password")
-	binlog, err = c.GetString("monitor", "binlog")
-	pos, err = c.GetInt64("monitor", "pos")
+	host, err = c.GetString(section, "host")
+	port, err = c.GetInt64(section, "port")
+	username, err = c.GetString(section, "username")
+	password, err = c.GetString(section, "password")
+	binlog, err = c.GetString(section, "binlog")
+	pos, err = c.GetInt64(section, "pos")
 	if err != nil {
 		panic("readconfigfile err: " + err.Error())
 		os.Exit(1)
@@ -97,8 +101,8 @@ func main() {
 		binlog = filename
 	}
 
-	c.AddOption("monitor", "pos", strconv.FormatInt(int64(pos_end), 10))
-	c.AddOption("monitor", "binlog", filename)
+	c.AddOption(section, "pos", strconv.FormatInt(int64(pos_end), 10))
+	c.AddOption(section, "binlog", filename)
 	c.WriteConfigFile(*conf, 0644, "monitor for mytpmonitor tool")
 
 	if uint32(pos) == pos_end && binlog == filename {
@@ -117,7 +121,7 @@ func main() {
 		for {
 
 			event := <-events
-			spew.Dump(event)
+			//spew.Dump(event)
 			switch e := event.(type) {
 			case *myreplication.QueryEvent:
 				LogPos = e.GetNextPosition()
